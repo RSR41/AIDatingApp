@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import { doc, setDoc } from 'firebase/firestore'; // Firestore 관련 함수
-import { auth, db } from '../services/firebase';  // Firebase 인증 + DB 인스턴스
+import { auth, db } from '../services/firebase';
 import { useNavigation } from '@react-navigation/native'; // 네비게이션
 import * as Notifications from 'expo-notifications'; // ← 이 줄을 추가
 
@@ -23,32 +23,51 @@ const ProfileSetupScreen = () => {
     }
   
     const currentUser = auth.currentUser;
-    // Expo Push Token 발급
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
+    console.log("👤 currentUser:", currentUser);
+    console.log("📁 Firestore 인스턴스:", db);
+    console.log("📂 사용자 문서 경로:", `users/${currentUser.uid}`);
+    console.log("🧪 setDoc 실행 전...");
 
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
+  
+      let pushToken = null;
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
 
-    let pushToken = null;
-    if (finalStatus === 'granted') {
-      pushToken = (await Notifications.getExpoPushTokenAsync()).data;
-    }
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
 
+        if (finalStatus === 'granted') {
+          const tokenData = await Notifications.getExpoPushTokenAsync();
+          pushToken = tokenData?.data || null;
+          console.log("📱 푸시 토큰:", pushToken);
+        } else {
+          console.log("🚫 알림 권한 거부됨");
+        }
+      } catch (err) {
+        console.log("⚠️ 알림 토큰 요청 중 에러 발생:", err.message);
+      }
+
+  
     if (!currentUser) {
       Alert.alert('오류', '로그인된 사용자가 없습니다.');
       return;
     }
   
     try {
+      console.log('🔥 Firestore 저장 직전:', {
+        uid: currentUser.uid,
+        name, age, gender, location, pushToken
+      });
+  
       await setDoc(doc(db, 'users', currentUser.uid), {
         name,
         age: parseInt(age),
         gender,
         location,
-        pushToken,
+        ...(pushToken ? { pushToken } : {}), // ✅ null일 땐 저장하지 않음
         preferredGender: '',
         preferredAgeMax: null,
         preferredLocation: '',
@@ -57,17 +76,22 @@ const ProfileSetupScreen = () => {
         profileSet: true,
       });
   
+      console.log('✅ Firestore 저장 완료!');
+  
       Alert.alert('완료', '프로필이 저장되었습니다.', [
         {
           text: '확인',
-          onPress: () => navigation.replace('MatchingPreference'),
+          onPress: () => {
+            console.log('✅ Alert 후 네비게이션 시도');
+            navigation.replace('MatchingPreference');
+          },
         },
       ]);
-  
+      
     } catch (error) {
-      console.error('프로필 저장 오류:', error);
-      Alert.alert('오류', '프로필 저장에 실패했습니다.');
-    }
+      console.error('❌ Firestore 저장 중 오류 발생:', error);
+      Alert.alert('오류', `프로필 저장에 실패했습니다.\n${error.message}`);
+    }    
   };  
 
   return (
